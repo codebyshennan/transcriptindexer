@@ -1,15 +1,16 @@
+import base64
+import json
+import math
+import os
+import subprocess
+
+import ffmpeg
 import streamlit as st
+import whisper
 from pytube import YouTube  # !pip install pytube
 from pytube.exceptions import RegexMatchError
 from tqdm.auto import tqdm  # !pip install tqdm
-import whisper
-import math
-import whisper
-import ffmpeg
-import subprocess
-import base64
-import os
-import json
+from pytube import Playlist, YouTube
 
 # model_size = st.selectbox(
 #     'Which model would you like to use?',
@@ -17,13 +18,14 @@ import json
 
 # Load whisper model
 # model = whisper.load_model(model_size)
-model = whisper.load_model('base')
+model = whisper.load_model('tiny')
 
 # Define functions
 def whisper_to_text(file_path):
 	transcribe = model.transcribe(audio=file_path, language='en')
 	segments_array = clean_transcription(transcribe)
 	return segments_array
+
 
 def clean_transcription(transcribe):
   """
@@ -52,7 +54,7 @@ def clean_transcription(transcribe):
       # Only key in timing if prev sentence has ended
       if prev_sen_ended == True:
         temp_array.append(math.floor(segment['start']))
-      
+
       temp_string += segment['text']
 
       prev_sen_ended = False
@@ -64,11 +66,10 @@ def clean_transcription(transcribe):
       if prev_sen_ended == True:
         temp_array.append(math.floor(segment['start']))
 
-
       temp_string += segment['text']
       temp_array.append(temp_string.strip())
       segments_array.append(temp_array)
-      
+
       # Reset temp string and array
       temp_string = ""
       temp_array = []
@@ -78,40 +79,35 @@ def clean_transcription(transcribe):
 
   return segments_array
 
+
 # Streamlit stuff goes here
 st.title("What time is it?")
 
 with st.form("my_form"):
-	playlist_url = st.text_input('Input YouTube URL',"https://www.youtube.com/playlist?list=PL1n2-n-o82sxNG4r2GyOQ7iX3Kg9KBz1s")
+	playlist_url = st.text_input(
+	    'Input YouTube URL', "https://www.youtube.com/playlist?list=PL1n2-n-o82sxNG4r2GyOQ7iX3Kg9KBz1s"
+			)
 
-# Every form must have a submit button.
-	submitted = st.form_submit_button("Submit")
-
-	if submitted:
-
+	if submitted := st.form_submit_button("Submit"):
 		video_path_array = []
 
 		st.write("Extracting YouTube playlist")
 
-		from pytube import Playlist, YouTube
 		playlist = Playlist(playlist_url)
-		metadata = []
-		for video in playlist:
-		  metadata.append(YouTube(video))
-
+		metadata = [YouTube(video) for video in playlist]
 		# for meta in metadata:
 		#   print(dir(meta))
 
-		reconstructedMeta = [ 
+		reconstructedMeta = [
 		    {
-		      "title": meta.title, 
-		      "description": meta.description, 
-		      "url": f"https://youtu.be/{meta.video_id}", 
-		      "keywords": meta.keywords, 
-		      "author": meta.author, 
-		      "publishedData": meta.publish_date, 
-		      "ChannelId": meta.channel_url[31:], 
-		      "videoId": meta.video_id 
+		      "title": meta.title,
+		      "description": meta.description,
+		      "url": f"https://youtu.be/{meta.video_id}",
+		      "keywords": meta.keywords,
+		      "author": meta.author,
+		      "publishedData": meta.publish_date,
+		      "ChannelId": meta.channel_url[31:],
+		      "videoId": meta.video_id
 		     } for meta in metadata]
 
 		# st.write(reconstructedMeta)
@@ -119,44 +115,39 @@ with st.form("my_form"):
 		# where to save
 		save_path = "./mp3"
 
-
 		# Extract all files in playlist as mp3
 
-		for i, row in enumerate(reconstructedMeta):
-		    # url of video to be downloaded
-		    url = row['url']
+		for row in reconstructedMeta:
+			# url of video to be downloaded
+			url = row['url']
+			try:
+				yt = YouTube(url)
+			except RegexMatchError:
+				print(f"RegexMatchError for '{url}'")
+				continue
 
-		    # try to create a YouTube vid object
-		    try:
-		        yt = YouTube(url)
-		    except RegexMatchError:
-		        print(f"RegexMatchError for '{url}'")
-		        continue
+			itag = None
+			# we only want audio files
+			files = yt.streams.filter(only_audio=True)
+			for file in files:
 
-		    itag = None
-		    # we only want audio files
-		    files = yt.streams.filter(only_audio=True)
-		    for file in files:
+					# print(file.mime_type)
 
-		        # print(file.mime_type)
+					# and of those audio files we grab the first audio for mp4 (eg mp3)
+				if file.mime_type == 'audio/mp4':
+						itag = file.itag
+						break
+			if itag is None:
+					# just incase no MP3 audio is found (shouldn't happen)
+					print("NO MP3 AUDIO FOUND")
+					continue
 
-		        # and of those audio files we grab the first audio for mp4 (eg mp3)
-		        if file.mime_type == 'audio/mp4':
-		            itag = file.itag
-		            break
-		    if itag is None:
-		        # just incase no MP3 audio is found (shouldn't happen)
-		        print("NO MP3 AUDIO FOUND")
-		        continue
+			# get the correct mp3 'stream'
+			stream = yt.streams.get_by_itag(itag)
+			# downloading the audio
+			stream.download(output_path=save_path, filename=f"{row['title']}.mp3")
 
-		    # get the correct mp3 'stream'
-		    stream = yt.streams.get_by_itag(itag)
-		    # downloading the audio
-		    stream.download(output_path=save_path, filename=f"{row['title']}.mp3")
-
-		    video_path_array.append(f"{save_path}/{row['title']}.mp3")
-
-
+			video_path_array.append(f"{save_path}/{row['title']}.mp3")
 		st.write("All mp3 files extracted")
 
 
@@ -181,7 +172,7 @@ with st.form("my_form"):
 
 		# Opening saved JSON file
 		f = open('transcribed.json')
-		  
+
 		# returns JSON object as 
 		# a dictionary
 		transcribed_texts = json.load(f)
