@@ -1,1 +1,1 @@
-# transcriptindexer
+This is a transcriptor

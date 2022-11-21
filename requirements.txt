@@ -1,0 +1,7 @@
+git+https://github.com/openai/whisper.git
+ffmpeg-python
+pytube
+requests
+moviepy
+pytube
+tqdm
